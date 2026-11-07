@@ -1,0 +1,82 @@
+menu "GofkuCamEmbedded Configuration"
+
+    config GOFKUCAM_MQTT_BROKER_ADDRESS
+        string "MQTT broker address"
+        default "192.168.50.3"
+        help
+            Broker hostname or IP address, without a scheme or port.
+            MQTT connects over unencrypted TCP (normally port 1883).
+
+    config GOFKUCAM_MQTT_BROKER_PORT
+        int "MQTT broker port"
+        range 1 65535
+        default 1883
+
+    config GOFKUCAM_ACCESS_POINT_NAME
+        string "AccessPoint name"
+        default ""
+        help
+            SSID of the Wi-Fi access point to connect to (up to 32 bytes).
+
+    config GOFKUCAM_ACCESS_POINT_PASSWORD
+        string "AccessPoint password"
+        default ""
+        help
+            Password of the Wi-Fi access point (up to 64 bytes).
+            Leave empty for an open network.
+
+    config GOFKUCAM_NTP_SERVER
+        string "NTP server"
+        default "pool.ntp.org"
+        help
+            NTP server hostname or IPv4 address. Time synchronization starts
+            after Wi-Fi connects and uses UDP port 123.
+
+    config GOFKUCAM_LOG_TIME_ZONE
+        string "Log time zone (POSIX TZ)"
+        default "CET-1CEST,M3.5.0/2,M10.5.0/3"
+        help
+            POSIX TZ rule used for system-clock log timestamps.
+            The default is Europe/Amsterdam with daylight-saving adjustment.
+            Use UTC0 for UTC timestamps.
+
+    config GOFKUCAM_SERVO_GPIO
+        int "Servo PWM GPIO"
+        range 0 48
+        default 3
+        help
+            GPIO connected to the servo signal wire. The PWM frequency is 50 Hz.
+
+    config GOFKUCAM_SERVO_MIN_PULSE_US
+        int "Servo pulse width at 0 degrees (microseconds)"
+        range 100 5000
+        default 500
+
+    config GOFKUCAM_SERVO_MAX_PULSE_US
+        int "Servo pulse width at 180 degrees (microseconds)"
+        range GOFKUCAM_SERVO_MIN_PULSE_US 5000
+        default 2500
+
+    config GOFKUCAM_SERVO_MIN_POSITION
+        int "Servo min position"
+        range 0 180
+        default 0
+        help
+            Closed gate position in degrees.
+
+    config GOFKUCAM_SERVO_MAX_POSITION
+        int "Servo max position"
+        range GOFKUCAM_SERVO_MIN_POSITION 180
+        default 180
+        help
+            Open gate position in degrees.
+
+    config GOFKUCAM_GATE_OPENING_VELOCITY_DPS
+        int "Gate opening velocity (degrees/second)"
+        range 1 360
+        default 60
+        help
+            Commanded velocity from closed to open. The gate task updates the
+            servo target every 20 milliseconds. Closing is unchanged.
+
+endmenu

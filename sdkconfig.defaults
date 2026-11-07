@@ -1,0 +1,9 @@
+# MQTT uses unencrypted TCP and does not need certificate verification.
+CONFIG_MQTT_TRANSPORT_SSL=n
+CONFIG_MQTT_TRANSPORT_WEBSOCKET_SECURE=n
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
+# The station uses a fixed IPv4 address.
+CONFIG_LWIP_IPV4=y
+CONFIG_LWIP_IPV6=n
+# Use the NTP-synchronized system clock (HH:MM:SS.sss) for normal logs.
+CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
