@@ -22,8 +22,8 @@ private:
     static esp_err_t gateStatus(httpd_req_t *request);
     static esp_err_t commandGate(httpd_req_t *request, bool open);
 
-    const ConnectionHandler &connection_;
-    const MqttHandler &mqtt_;
-    GateController &gate_;
-    httpd_handle_t server_ = nullptr;
+    const ConnectionHandler &m_connection;
+    const MqttHandler &m_mqtt;
+    GateController &m_gate;
+    httpd_handle_t m_server = nullptr;
 };

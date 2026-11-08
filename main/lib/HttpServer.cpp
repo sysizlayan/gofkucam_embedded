@@ -68,18 +68,18 @@ esp_err_t readOpeningVelocity(httpd_req_t *request, unsigned &velocity, bool &pr
 }
 
 HttpServer::HttpServer(const ConnectionHandler &connection, const MqttHandler &mqtt, GateController &gate)
-    : connection_(connection), mqtt_(mqtt), gate_(gate)
+    : m_connection(connection), m_mqtt(mqtt), m_gate(gate)
 {
 }
 
 HttpServer::~HttpServer()
 {
-    configASSERT(server_ == nullptr);
+    configASSERT(m_server == nullptr);
 }
 
 esp_err_t HttpServer::start()
 {
-    if (server_ != nullptr) { return ESP_OK; }
+    if (m_server != nullptr) { return ESP_OK; }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.lru_purge_enable = true;
@@ -112,7 +112,7 @@ esp_err_t HttpServer::start()
         httpd_stop(server);
         return result;
     }
-    server_ = server;
+    m_server = server;
     ESP_LOGI(TAG, "HTTP server listening on http://%s/", NetworkConfig::ADDRESS);
     return ESP_OK;
 }
@@ -129,7 +129,7 @@ esp_err_t HttpServer::status(httpd_req_t *request)
     const auto *self = static_cast<const HttpServer *>(request->user_ctx);
     char response[256];
     std::snprintf(response, sizeof(response), "{\"ip\":\"%s\",\"wifi\":\"%s\",\"mqtt\":\"%s\"}",
-                  NetworkConfig::ADDRESS, stateName(self->connection_.state()), stateName(self->mqtt_.state()));
+                  NetworkConfig::ADDRESS, stateName(self->m_connection.state()), stateName(self->m_mqtt.state()));
     esp_err_t result = httpd_resp_set_type(request, "application/json");
     if (result == ESP_OK) { result = httpd_resp_set_hdr(request, "Cache-Control", "no-store"); }
     return result == ESP_OK ? httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN) : result;
@@ -146,9 +146,9 @@ esp_err_t HttpServer::commandGate(httpd_req_t *request, bool open)
         unsigned velocity = 0;
         bool provided = false;
         command = readOpeningVelocity(request, velocity, provided);
-        if (command == ESP_OK) { command = provided ? self->gate_.open(velocity) : self->gate_.open(); }
+        if (command == ESP_OK) { command = provided ? self->m_gate.open(velocity) : self->m_gate.open(); }
     } else {
-        command = self->gate_.close();
+        command = self->m_gate.close();
     }
     const char *response;
     const char *status;
@@ -158,7 +158,7 @@ esp_err_t HttpServer::commandGate(httpd_req_t *request, bool open)
     } else if (command == ESP_ERR_INVALID_ARG) {
         status = "400 Bad Request";
         response = "{\"accepted\":false,\"error\":\"velocity must be an integer from 1 to 360 degrees/second\"}";
-    } else if (!open && !self->gate_.mqttConnected()) {
+    } else if (!open && !self->m_gate.mqttConnected()) {
         status = "409 Conflict";
         response = "{\"accepted\":false,\"error\":\"MQTT is offline; gate must remain open\"}";
     } else {
@@ -177,9 +177,9 @@ esp_err_t HttpServer::gateStatus(httpd_req_t *request)
     char response[320];
     std::snprintf(response, sizeof(response),
                   "{\"state\":\"%s\",\"target\":\"%s\",\"commanded_position\":%.2f,\"opening_velocity_dps\":%u,\"mqtt_connected\":%s,\"last_error\":\"%s\"}",
-                  stateName(self->gate_.state()), stateName(self->gate_.target()),
-                  static_cast<double>(self->gate_.commandedPosition()), self->gate_.openingVelocity(),
-                  self->gate_.mqttConnected() ? "true" : "false", esp_err_to_name(self->gate_.lastError()));
+                  stateName(self->m_gate.state()), stateName(self->m_gate.target()),
+                  static_cast<double>(self->m_gate.commandedPosition()), self->m_gate.openingVelocity(),
+                  self->m_gate.mqttConnected() ? "true" : "false", esp_err_to_name(self->m_gate.lastError()));
     esp_err_t result = httpd_resp_set_type(request, "application/json");
     if (result == ESP_OK) { result = httpd_resp_set_hdr(request, "Cache-Control", "no-store"); }
     return result == ESP_OK ? httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN) : result;

@@ -14,8 +14,8 @@ public:
 
     esp_err_t initialize(float initialPosition);
     esp_err_t setPosition(float position);
-    bool ready() const { return handle_ != nullptr; }
+    bool ready() const { return m_handle != nullptr; }
 
 private:
-    servo_t *handle_ = nullptr;
+    servo_t *m_handle = nullptr;
 };

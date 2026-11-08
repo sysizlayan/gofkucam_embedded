@@ -23,17 +23,17 @@ class ActiveObject {
 
 public:
     explicit ActiveObject(StateType initialState)
-        : queue_(xQueueCreate(static_cast<UBaseType_t>(MaxEvents), sizeof(Event))),
-          state_(initialState)
+        : m_queue(xQueueCreate(static_cast<UBaseType_t>(MaxEvents), sizeof(Event))),
+          m_state(initialState)
     {
     }
 
     virtual ~ActiveObject()
     {
         // Only objects whose task was never started may be destroyed.
-        configASSERT(task_.load() == nullptr);
-        if (queue_ != nullptr) {
-            vQueueDelete(queue_);
+        configASSERT(m_task.load() == nullptr);
+        if (m_queue != nullptr) {
+            vQueueDelete(m_queue);
         }
     }
 
@@ -44,10 +44,10 @@ public:
 
     bool start(const char *name = "ActiveObject", std::uint32_t stackSize = 4096, UBaseType_t priority = tskIDLE_PRIORITY + 1)
     {
-        if (task_.load() != nullptr) {
+        if (m_task.load() != nullptr) {
             return true;
         }
-        if (queue_ == nullptr || name == nullptr ||
+        if (m_queue == nullptr || name == nullptr ||
             stackSize == 0 || priority >= configMAX_PRIORITIES) {
             return false;
         }
@@ -56,21 +56,21 @@ public:
         if (xTaskCreatePinnedToCore(taskEntry, name, stackSize, this, priority, &task, 1) != pdPASS) {
             return false;
         }
-        task_.store(task);
+        m_task.store(task);
         return true;
     }
 
     // Task context only. False means not started, full, or the wait expired.
     bool postEvent(const Event &event, TickType_t waitTicks = 0)
     {
-        return task_.load() != nullptr &&
-               xQueueSend(queue_, &event, waitTicks) == pdTRUE;
+        return m_task.load() != nullptr &&
+               xQueueSend(m_queue, &event, waitTicks) == pdTRUE;
     }
 
     // May be observed from other tasks; state changes happen in the worker.
     StateType state() const
     {
-        return state_.load();
+        return m_state.load();
     }
 
 protected:
@@ -79,7 +79,7 @@ protected:
     {
         Event event{};
         for (;;) {
-            if (xQueueReceive(queue_, &event, event_wait_ticks()) == pdTRUE) {
+            if (xQueueReceive(m_queue, &event, event_wait_ticks()) == pdTRUE) {
                 handle_event(event);
             } else {
                 on_timeout();
@@ -99,7 +99,7 @@ protected:
         }
 
         on_state_exit(current);
-        state_.store(next);
+        m_state.store(next);
         on_state_enter(next);
     }
 
@@ -126,7 +126,7 @@ private:
         static_cast<ActiveObject *>(argument)->loop();
     }
 
-    QueueHandle_t queue_ = nullptr;
-    std::atomic<TaskHandle_t> task_{nullptr};
-    std::atomic<StateType> state_;
+    QueueHandle_t m_queue = nullptr;
+    std::atomic<TaskHandle_t> m_task{nullptr};
+    std::atomic<StateType> m_state;
 };

@@ -1,13 +1,14 @@
 #pragma once
 
+#include "IObserver.hpp"
 #include "esp_err.h"
 
 struct timeval;
 
-class TimeSync {
+class TimeSync : public IObserver {
 public:
     TimeSync() = default;
-    ~TimeSync();
+    ~TimeSync() override;
     TimeSync(const TimeSync &) = delete;
     TimeSync &operator=(const TimeSync &) = delete;
 
@@ -15,11 +16,12 @@ public:
     esp_err_t initialize();
     // Call from the connection handler's task. No wait for an NTP response.
     esp_err_t setNetworkAvailable(bool available);
+    void update(ObservedSignal signal, const ObservedPayload &payload = {}) override;
 
 private:
     static void timeSynchronized(timeval *time);
 
-    bool timezoneConfigured_ = false;
-    bool initialized_ = false;
-    bool running_ = false;
+    bool m_timezoneConfigured = false;
+    bool m_initialized = false;
+    bool m_running = false;
 };

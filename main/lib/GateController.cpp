@@ -11,29 +11,28 @@ constexpr TickType_t STEP_TICKS = pdMS_TO_TICKS(20) > 0 ? pdMS_TO_TICKS(20) : 1;
 }
 
 GateController::GateController()
-    : ActiveObject(GateState::Idle), openingVelocity_(CONFIG_GOFKUCAM_GATE_OPENING_VELOCITY_DPS)
-{
-}
+    : ActiveObject(GateState::Idle), m_openingVelocity(CONFIG_GOFKUCAM_GATE_OPENING_VELOCITY_DPS)
+{}
 
 esp_err_t GateController::initialize()
 {
-    if (accepting_.load()) { return ESP_OK; }
+    if (m_accepting.load()) { return ESP_OK; }
     if (!start("gate_controller")) { return ESP_ERR_NO_MEM; }
-    accepting_.store(true);
+    m_accepting.store(true);
     return postEvent(GateEvent::Start) ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 esp_err_t GateController::open()
 {
-    if (!accepting_.load()) { return ESP_ERR_INVALID_STATE; }
-    control_.fetch_and(~CLOSE_REQUESTED);
+    if (!m_accepting.load()) { return ESP_ERR_INVALID_STATE; }
+    m_control.fetch_and(~CLOSE_REQUESTED);
     postEvent(GateEvent::Open);
     return ESP_OK;
 }
 
 esp_err_t GateController::open(unsigned degreesPerSecond)
 {
-    if (!accepting_.load()) { return ESP_ERR_INVALID_STATE; }
+    if (!m_accepting.load()) { return ESP_ERR_INVALID_STATE; }
     const esp_err_t result = setOpeningVelocity(degreesPerSecond);
     return result == ESP_OK ? open() : result;
 }
@@ -41,18 +40,18 @@ esp_err_t GateController::open(unsigned degreesPerSecond)
 esp_err_t GateController::setOpeningVelocity(unsigned degreesPerSecond)
 {
     if (degreesPerSecond < 1 || degreesPerSecond > 360) { return ESP_ERR_INVALID_ARG; }
-    openingVelocity_.store(degreesPerSecond);
+    m_openingVelocity.store(degreesPerSecond);
     postEvent(GateEvent::VelocityChanged);
     return ESP_OK;
 }
 
 esp_err_t GateController::close()
 {
-    if (!accepting_.load()) { return ESP_ERR_INVALID_STATE; }
-    unsigned current = control_.load();
+    if (!m_accepting.load()) { return ESP_ERR_INVALID_STATE; }
+    unsigned current = m_control.load();
     do {
         if (!(current & MQTT_CONNECTED)) { return ESP_ERR_INVALID_STATE; }
-    } while (!control_.compare_exchange_weak(current, current | CLOSE_REQUESTED));
+    } while (!m_control.compare_exchange_weak(current, current | CLOSE_REQUESTED));
     postEvent(GateEvent::Close);
     return ESP_OK;
 }
@@ -60,52 +59,67 @@ esp_err_t GateController::close()
 void GateController::setMqttConnected(bool connected)
 {
     if (connected) {
-        control_.fetch_or(MQTT_CONNECTED); // Connecting alone never closes the gate.
+        m_control.fetch_or(MQTT_CONNECTED); // Connecting alone never closes the gate.
     } else {
-        control_.store(0); // Forget pending close commands and reopen.
+        m_control.store(0); // Forget pending close commands and reopen.
     }
     postEvent(GateEvent::MqttChanged);
 }
 
-bool GateController::mqttConnected() const { return (control_.load() & MQTT_CONNECTED) != 0; }
+void GateController::update(ObservedSignal signal, const ObservedPayload &payload)
+{
+    (void)payload;
+    switch (signal) {
+    case ObservedSignal::MqttConnected:
+        setMqttConnected(true);
+        break;
+    case ObservedSignal::MqttDisconnected:
+        setMqttConnected(false);
+        break;
+    default:
+        break;
+    }
+}
+
+bool GateController::mqttConnected() const { return (m_control.load() & MQTT_CONNECTED) != 0; }
 GateState GateController::target() const
 {
-    return control_.load() == (MQTT_CONNECTED | CLOSE_REQUESTED) ? GateState::Closed : GateState::Open;
+    return m_control.load() == (MQTT_CONNECTED | CLOSE_REQUESTED) ? GateState::Closed : GateState::Open;
 }
 
 esp_err_t GateController::writePosition(float angle)
 {
-    const esp_err_t result = servo_.setPosition(angle);
+    const esp_err_t result = m_servo.setPosition(angle);
     if (result == ESP_OK) {
-        position_.store(angle);
-        lastError_.store(ESP_OK);
+        m_position.store(angle);
+        m_lastError.store(ESP_OK);
     }
     return result;
 }
 
 GateState GateController::servoFailure(esp_err_t error)
 {
-    openingActive_ = false;
-    lastError_.store(error);
-    recovery_.recover();
+    m_openingActive = false;
+    m_lastError.store(error);
+    m_recovery.recover();
     ESP_LOGW(TAG, "Servo command failed: %s", esp_err_to_name(error));
     return GateState::Recovering;
 }
 
 GateState GateController::advanceOpening(TickType_t now, bool force)
 {
-    if (!force && now - lastOpeningStep_ < STEP_TICKS) { return GateState::Opening; }
-    const TickType_t elapsed = now - openingStarted_;
-    const float distance = static_cast<float>(static_cast<double>(elapsed) * motionVelocity_ / configTICK_RATE_HZ);
-    const float angle = std::min(static_cast<float>(CONFIG_GOFKUCAM_SERVO_MAX_POSITION), openingFrom_ + distance);
-    if (angle != position_.load()) {
+    if (!force && now - m_lastOpeningStep < STEP_TICKS) { return GateState::Opening; }
+    const TickType_t elapsed = now - m_openingStarted;
+    const float distance = static_cast<float>(static_cast<double>(elapsed) * m_motionVelocity / configTICK_RATE_HZ);
+    const float angle = std::min(static_cast<float>(CONFIG_GOFKUCAM_SERVO_MAX_POSITION), m_openingFrom + distance);
+    if (angle != m_position.load()) {
         const esp_err_t result = writePosition(angle);
         if (result != ESP_OK) { return servoFailure(result); }
     }
-    lastOpeningStep_ = now;
+    m_lastOpeningStep = now;
     if (angle >= CONFIG_GOFKUCAM_SERVO_MAX_POSITION) {
-        openingActive_ = false;
-        recovery_.connected();
+        m_openingActive = false;
+        m_recovery.connected();
         return GateState::Open;
     }
     return GateState::Opening;
@@ -114,51 +128,51 @@ GateState GateController::advanceOpening(TickType_t now, bool force)
 GateState GateController::applyRequestedPosition()
 {
     esp_err_t result = ESP_OK;
-    if (!servo_.ready()) {
+    if (!m_servo.ready()) {
         // Startup has no known closed position: initialize directly to open.
-        result = servo_.initialize(CONFIG_GOFKUCAM_SERVO_MAX_POSITION);
+        result = m_servo.initialize(CONFIG_GOFKUCAM_SERVO_MAX_POSITION);
         if (result != ESP_OK) { return servoFailure(result); }
-        position_.store(CONFIG_GOFKUCAM_SERVO_MAX_POSITION);
-        lastError_.store(ESP_OK);
-    } else if (position_.load() < 0 || lastError_.load() != ESP_OK) {
+        m_position.store(CONFIG_GOFKUCAM_SERVO_MAX_POSITION);
+        m_lastError.store(ESP_OK);
+    } else if (m_position.load() < 0 || m_lastError.load() != ESP_OK) {
         // Validate the last successful target before resuming after a driver error.
-        const float angle = position_.load() < 0 ? CONFIG_GOFKUCAM_SERVO_MAX_POSITION : position_.load();
+        const float angle = m_position.load() < 0 ? CONFIG_GOFKUCAM_SERVO_MAX_POSITION : m_position.load();
         result = writePosition(angle);
         if (result != ESP_OK) { return servoFailure(result); }
     }
 
     if (target() == GateState::Closed) {
-        openingActive_ = false;
-        if (position_.load() != CONFIG_GOFKUCAM_SERVO_MIN_POSITION) {
+        m_openingActive = false;
+        if (m_position.load() != CONFIG_GOFKUCAM_SERVO_MIN_POSITION) {
             result = writePosition(CONFIG_GOFKUCAM_SERVO_MIN_POSITION);
             if (result != ESP_OK) { return servoFailure(result); }
         }
-        recovery_.connected();
+        m_recovery.connected();
         return GateState::Closed;
     }
-    if (position_.load() >= CONFIG_GOFKUCAM_SERVO_MAX_POSITION) {
-        openingActive_ = false;
-        recovery_.connected();
+    if (m_position.load() >= CONFIG_GOFKUCAM_SERVO_MAX_POSITION) {
+        m_openingActive = false;
+        m_recovery.connected();
         return GateState::Open;
     }
 
     const TickType_t now = xTaskGetTickCount();
-    const unsigned velocity = openingVelocity_.load();
-    if (!openingActive_) {
-        openingActive_ = true;
-        openingFrom_ = position_.load();
-        motionVelocity_ = velocity;
-        openingStarted_ = lastOpeningStep_ = now;
-        recovery_.connected();
+    const unsigned velocity = m_openingVelocity.load();
+    if (!m_openingActive) {
+        m_openingActive = true;
+        m_openingFrom = m_position.load();
+        m_motionVelocity = velocity;
+        m_openingStarted = m_lastOpeningStep = now;
+        m_recovery.connected();
         return GateState::Opening;
     }
-    if (velocity != motionVelocity_) {
+    if (velocity != m_motionVelocity) {
         // Reach the current point on the old trajectory, then change its slope.
         const GateState progressed = advanceOpening(now, true);
         if (progressed != GateState::Opening) { return progressed; }
-        openingFrom_ = position_.load();
-        motionVelocity_ = velocity;
-        openingStarted_ = lastOpeningStep_ = now;
+        m_openingFrom = m_position.load();
+        m_motionVelocity = velocity;
+        m_openingStarted = m_lastOpeningStep = now;
     }
     return advanceOpening(now);
 }
@@ -228,7 +242,7 @@ GateState GateController::handle_state_event(GateState state, const GateEvent &e
                 case GateEvent::MqttChanged:
                 case GateEvent::VelocityChanged:
                 case GateEvent::Timeout:
-                    if (recovery_.remaining() == 0) { return applyRequestedPosition(); }
+                    if (m_recovery.remaining() == 0) { return applyRequestedPosition(); }
                     break;
             }
             break;
@@ -241,13 +255,13 @@ void GateController::on_state_enter(GateState state)
     switch (state)
     {
         case GateState::Open:
-            ESP_LOGI(TAG, "Gate commanded open at %.2f degrees", static_cast<double>(position_.load()));
+            ESP_LOGI(TAG, "Gate commanded open at %.2f degrees", static_cast<double>(m_position.load()));
             break;
         case GateState::Opening:
-            ESP_LOGI(TAG, "Gate opening at %u degrees/s", motionVelocity_);
+            ESP_LOGI(TAG, "Gate opening at %u degrees/s", m_motionVelocity);
             break;
         case GateState::Closed:
-            ESP_LOGI(TAG, "Gate commanded closed at %.2f degrees", static_cast<double>(position_.load()));
+            ESP_LOGI(TAG, "Gate commanded closed at %.2f degrees", static_cast<double>(m_position.load()));
             break;
         case GateState::Recovering:
             ESP_LOGW(TAG, "Retrying servo control after recovery delay");
@@ -259,10 +273,10 @@ void GateController::on_state_enter(GateState state)
 
 TickType_t GateController::event_wait_ticks() const
 {
-    if (openingActive_) {
-        const TickType_t elapsed = xTaskGetTickCount() - lastOpeningStep_;
+    if (m_openingActive) {
+        const TickType_t elapsed = xTaskGetTickCount() - m_lastOpeningStep;
         return elapsed >= STEP_TICKS ? 0 : STEP_TICKS - elapsed;
     }
-    return recovery_.remaining();
+    return m_recovery.remaining();
 }
 void GateController::on_timeout() { handle_event(GateEvent::Timeout); }

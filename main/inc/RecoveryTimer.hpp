@@ -10,30 +10,30 @@ public:
     void failed() { arm(0); }
     void recover()
     {
-        arm(pdMS_TO_TICKS(backoffMs_));
-        backoffMs_ = backoffMs_ >= 15000 ? 30000 : backoffMs_ * 2;
+        arm(pdMS_TO_TICKS(m_backoffMs));
+        m_backoffMs = m_backoffMs >= 15000 ? 30000 : m_backoffMs * 2;
     }
     void connected()
     {
-        backoffMs_ = 1000;
-        duration_ = portMAX_DELAY;
+        m_backoffMs = 1000;
+        m_duration = portMAX_DELAY;
     }
     TickType_t remaining() const
     {
-        if (duration_ == portMAX_DELAY) {
+        if (m_duration == portMAX_DELAY) {
             return portMAX_DELAY;
         }
-        const TickType_t elapsed = xTaskGetTickCount() - started_;
-        return elapsed >= duration_ ? 0 : duration_ - elapsed;
+        const TickType_t elapsed = xTaskGetTickCount() - m_started;
+        return elapsed >= m_duration ? 0 : m_duration - elapsed;
     }
 
 private:
     void arm(TickType_t duration)
     {
-        started_ = xTaskGetTickCount();
-        duration_ = duration;
+        m_started = xTaskGetTickCount();
+        m_duration = duration;
     }
-    TickType_t started_ = 0;
-    TickType_t duration_ = portMAX_DELAY;
-    unsigned backoffMs_ = 1000;
+    TickType_t m_started = 0;
+    TickType_t m_duration = portMAX_DELAY;
+    unsigned m_backoffMs = 1000;
 };

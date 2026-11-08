@@ -13,18 +13,18 @@ constexpr const char *TAG = "time_sync";
 
 TimeSync::~TimeSync()
 {
-    configASSERT(!initialized_);
+    configASSERT(!m_initialized);
 }
 
 esp_err_t TimeSync::initialize()
 {
-    if (!timezoneConfigured_) {
+    if (!m_timezoneConfigured) {
         if (setenv("TZ", CONFIG_GOFKUCAM_LOG_TIME_ZONE, 1) != 0) { return ESP_ERR_NO_MEM; }
         tzset();
-        timezoneConfigured_ = true;
+        m_timezoneConfigured = true;
         ESP_LOGI(TAG, "Waiting for NTP; log timestamps are provisional until synchronization");
     }
-    if (initialized_) { return ESP_OK; }
+    if (m_initialized) { return ESP_OK; }
 
     esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(CONFIG_GOFKUCAM_NTP_SERVER);
     config.start = false;
@@ -32,31 +32,47 @@ esp_err_t TimeSync::initialize()
     config.server_from_dhcp = false;
     config.sync_cb = timeSynchronized;
     const esp_err_t result = esp_netif_sntp_init(&config);
-    if (result == ESP_OK) { initialized_ = true; }
+    if (result == ESP_OK) { m_initialized = true; }
     return result;
 }
 
 esp_err_t TimeSync::setNetworkAvailable(bool available)
 {
     if (!available) {
-        if (initialized_) {
+        if (m_initialized) {
             esp_netif_sntp_deinit();
-            initialized_ = false;
-            running_ = false;
+            m_initialized = false;
+            m_running = false;
         }
         // The RTC/system clock keeps running using the last synchronized time.
         return ESP_OK;
     }
-    if (running_) { return ESP_OK; }
+    if (m_running) { return ESP_OK; }
     esp_err_t result = initialize();
     if (result == ESP_OK) { result = esp_netif_sntp_start(); }
     if (result == ESP_OK) {
-        running_ = true;
+        m_running = true;
         ESP_LOGI(TAG, "Synchronizing time with NTP server %s", CONFIG_GOFKUCAM_NTP_SERVER);
     } else {
         ESP_LOGW(TAG, "Could not start NTP synchronization: %s", esp_err_to_name(result));
     }
     return result;
+}
+
+void TimeSync::update(ObservedSignal signal, const ObservedPayload &payload)
+{
+    (void)payload;
+    switch (signal) 
+    {
+        case ObservedSignal::NetworkConnected:
+            setNetworkAvailable(true);
+            break;
+        case ObservedSignal::NetworkDisconnected:
+            setNetworkAvailable(false);
+            break;
+        default:
+            break;
+    }
 }
 
 void TimeSync::timeSynchronized(timeval *time)

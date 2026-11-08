@@ -7,6 +7,7 @@ idf_component_register(
         "lib/TimeSync.cpp"
         "lib/ServoMotor.cpp"
         "lib/GateController.cpp"
+        "lib/Subject.cpp"
     REQUIRES freertos espressif__mqtt esp_event esp_netif esp_http_server
     PRIV_REQUIRES esp_wifi nvs_flash espressif__servo
     INCLUDE_DIRS "." "inc"

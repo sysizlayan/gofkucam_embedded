@@ -34,17 +34,9 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(gate.initialize());
     ESP_ERROR_CHECK(timeSync.initialize());
 
-    struct NetworkServices {
-        MqttHandler &mqtt;
-        TimeSync &timeSync;
-    };
-    static NetworkServices services{mqtt, timeSync};
-
-    connection.setConnectionListener([](void *context, bool connected) {
-        auto &services = *static_cast<NetworkServices *>(context);
-        services.mqtt.setNetworkAvailable(connected);
-        services.timeSync.setNetworkAvailable(connected);
-    }, &services);
+    connection.subscribe(&mqtt);
+    connection.subscribe(&timeSync);
+    mqtt.subscribe(&gate);
 
     ESP_ERROR_CHECK(http.start());
     ESP_ERROR_CHECK(mqtt.connect());
