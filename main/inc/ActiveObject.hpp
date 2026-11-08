@@ -42,10 +42,7 @@ public:
     ActiveObject(ActiveObject &&) = delete;
     ActiveObject &operator=(ActiveObject &&) = delete;
 
-    // ESP-IDF specifies the task stack size in bytes. Returns false if resources
-    // cannot be allocated. Call from the owner, after construction is complete.
-    bool start(const char *name = "ActiveObject", std::uint32_t stackSize = 4096,
-               UBaseType_t priority = tskIDLE_PRIORITY + 1)
+    bool start(const char *name = "ActiveObject", std::uint32_t stackSize = 4096, UBaseType_t priority = tskIDLE_PRIORITY + 1)
     {
         if (task_.load() != nullptr) {
             return true;
@@ -56,7 +53,7 @@ public:
         }
 
         TaskHandle_t task = nullptr;
-        if (xTaskCreate(taskEntry, name, stackSize, this, priority, &task) != pdPASS) {
+        if (xTaskCreatePinnedToCore(taskEntry, name, stackSize, this, priority, &task, 1) != pdPASS) {
             return false;
         }
         task_.store(task);
