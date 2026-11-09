@@ -42,18 +42,22 @@ public:
     ActiveObject(ActiveObject &&) = delete;
     ActiveObject &operator=(ActiveObject &&) = delete;
 
-    bool start(const char *name = "ActiveObject", std::uint32_t stackSize = 4096, UBaseType_t priority = tskIDLE_PRIORITY + 1)
+    bool start(const char *name = "ActiveObject", std::uint32_t stackSize = 4096,
+               UBaseType_t priority = tskIDLE_PRIORITY + 1)
     {
-        if (m_task.load() != nullptr) {
+        if (m_task.load() != nullptr)
+        {
             return true;
         }
         if (m_queue == nullptr || name == nullptr ||
-            stackSize == 0 || priority >= configMAX_PRIORITIES) {
+            stackSize == 0 || priority >= configMAX_PRIORITIES)
+        {
             return false;
         }
 
         TaskHandle_t task = nullptr;
-        if (xTaskCreatePinnedToCore(taskEntry, name, stackSize, this, priority, &task, 1) != pdPASS) {
+        if (xTaskCreate(taskEntry, name, stackSize, this, priority, &task) != pdPASS)
+        {
             return false;
         }
         m_task.store(task);
@@ -78,10 +82,14 @@ protected:
     [[noreturn]] void loop()
     {
         Event event{};
-        for (;;) {
-            if (xQueueReceive(m_queue, &event, event_wait_ticks()) == pdTRUE) {
+        for (;;)
+        {
+            if (xQueueReceive(m_queue, &event, event_wait_ticks()) == pdTRUE)
+            {
                 handle_event(event);
-            } else {
+            }
+            else
+            {
                 on_timeout();
             }
         }
@@ -94,7 +102,8 @@ protected:
     {
         const StateType current = state();
         const StateType next = handle_state_event(current, event);
-        if (next == current) {
+        if (next == current)
+        {
             return;
         }
 
@@ -106,7 +115,10 @@ protected:
     virtual StateType handle_state_event(StateType current, const Event &event) = 0;
 
     // A state can set a deadline without a timer task, polling, or a semaphore.
-    virtual TickType_t event_wait_ticks() const { return portMAX_DELAY; }
+    virtual TickType_t event_wait_ticks() const
+    {
+        return portMAX_DELAY;
+    }
     virtual void on_timeout() {}
 
     // Hooks run on state changes. The initial state is set by the constructor.
